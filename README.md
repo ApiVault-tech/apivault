@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/apivault"><img src="https://img.shields.io/npm/v/apivault.svg?style=flat-square&color=6366f1" alt="npm version"></a>
-  <a href="https://github.com/TLB-STATION/apivault/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TLB-STATION/apivault.svg?style=flat-square&color=10b981" alt="license"></a>
+  <a href="https://github.com/ApiVault-tech/apivault/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ApiVault-tech/apivault.svg?style=flat-square&color=10b981" alt="license"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/apivault.svg?style=flat-square&color=8b5cf6" alt="node version"></a>
 </p>
 
@@ -446,10 +446,10 @@ apivault --json keys get <id> --reveal | jq -r .rawKey | clip
 
 ## 🤖 AI Agent Skill
 
-If you use AI coding assistants (Cursor, Claude Desktop, Claude Code, Windsurf, Antigravity), install the official [ApiVault Skill](https://github.com/TLB-STATION/apivault-skill) into your workspace:
+If you use AI coding assistants (Cursor, Claude Desktop, Claude Code, Windsurf, Antigravity), install the official [ApiVault Skill](https://github.com/ApiVault-tech/apivault-skill) into your workspace:
 
 ```bash
-git clone https://github.com/TLB-STATION/apivault-skill.git .agents/skills/apivault
+git clone https://github.com/ApiVault-tech/apivault-skill.git .agents/skills/apivault
 ```
 
 This equips your AI agents with native runbooks, MCP configuration templates, and automated workflows to manage credentials without leaking secrets.
@@ -460,8 +460,8 @@ This equips your AI agents with native runbooks, MCP configuration templates, an
 
 - **Website**: [apivault.tech](https://apivault.tech)
 - **CLI Docs**: [apivault.tech/docs/cli](https://apivault.tech/docs/cli)
-- **AI Agent Skill**: [github.com/TLB-STATION/apivault-skill](https://github.com/TLB-STATION/apivault-skill)
-- **Issues**: [GitHub Issues](https://github.com/TLB-STATION/apivault/issues)
+- **AI Agent Skill**: [github.com/ApiVault-tech/apivault-skill](https://github.com/ApiVault-tech/apivault-skill)
+- **Issues**: [GitHub Issues](https://github.com/ApiVault-tech/apivault/issues)
 
 ## License
 

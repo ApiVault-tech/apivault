@@ -5,12 +5,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TLB-STATION/apivault.git"
+    "url": "git+https://github.com/ApiVault-tech/apivault.git"
   },
   "bugs": {
-    "url": "https://github.com/TLB-STATION/apivault/issues"
+    "url": "https://github.com/ApiVault-tech/apivault/issues"
   },
-  "homepage": "https://github.com/TLB-STATION/apivault#readme",
+  "homepage": "https://github.com/ApiVault-tech/apivault#readme",
   "keywords": [
     "apivault",
     "api-keys",
