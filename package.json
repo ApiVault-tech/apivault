@@ -1,6 +1,6 @@
 {
   "name": "apivault",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Command-line client for an ApiVault instance. Manage your encrypted API keys from the terminal.",
   "license": "MIT",
   "repository": {
