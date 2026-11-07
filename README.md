@@ -278,14 +278,14 @@ apivault keys add \
 
 ### Custom Encryption Vault Key
 
-Accounts with a **custom vault key** (Settings → Encryption Key) need the vault key for encrypt/decrypt operations. The CLI resolves it in order:
+Projects with a **custom vault key** (set on the project's Vault Encryption page) need the vault key for encrypt/decrypt operations. The CLI resolves it in order:
 
 1. `--vault-key "<vault-key>"` flag
 2. `APIVAULT_KEY` environment variable
 3. Stored config value (`apivault config set vaultKey`)
 4. Interactive hidden prompt (fallback)
 
-Accounts using default encryption need no vault key.
+Projects using default encryption need no vault key.
 
 #### Attempt limits
 

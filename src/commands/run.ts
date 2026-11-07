@@ -184,7 +184,7 @@ export function registerRunCommand(program: Command): void {
     .option("--env <environment>", "Environment to load secrets from (or set config run.env)")
     .option(
       "--vault-key <vaultKey>",
-      "Vault key for custom-mode accounts (or set APIVAULT_KEY)",
+      "Vault key for projects in custom encryption mode (or set APIVAULT_KEY)",
     )
     .allowUnknownOption(true)
     .action(async (localOpts: RunOpts, cmd: Command) => {

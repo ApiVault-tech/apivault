@@ -116,7 +116,7 @@ export function registerEnvCommand(program: Command): void {
     .option("-o, --output <file>", "Output path (default: .env)", ".env")
     .option(
       "--vault-key <vaultKey>",
-      "Vault key for custom-mode accounts (or set APIVAULT_KEY)",
+      "Vault key for projects in custom encryption mode (or set APIVAULT_KEY)",
     )
     .option("-f, --force", "Replace the file instead of merging with existing variables")
     .action(async (opts: ExportOpts) => exportEnv({ ...globals(), ...opts }, json()).catch(handle));

@@ -419,7 +419,7 @@ export function registerKeysCommand(program: Command): void {
     .option("--reveal", "Decrypt and print the raw key value")
     .option(
       "--vault-key <vaultKey>",
-      "Vault key for custom-mode accounts (or set APIVAULT_KEY)",
+      "Vault key for projects in custom encryption mode (or set APIVAULT_KEY)",
     )
     .action(async (id: string, local: { reveal?: boolean; vaultKey?: string }) =>
       getKey(id, { ...globals(), reveal: local.reveal, vaultKey: local.vaultKey }).catch(handle),
@@ -434,7 +434,7 @@ export function registerKeysCommand(program: Command): void {
     .option("--key <value>", "API key / secret value to store")
     .option(
       "--vault-key <vaultKey>",
-      "Vault key for custom-mode accounts (or set APIVAULT_KEY)",
+      "Vault key for projects in custom encryption mode (or set APIVAULT_KEY)",
     )
     .option("--notes <notes>", "Notes")
     .action(async (local: AddKeyFields) =>
