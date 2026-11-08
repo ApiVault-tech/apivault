@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { deleteSecret, getSecret, setSecret } from "./secret-store";
 
 /**
  * Base URL of the ApiVault instance the CLI talks to.
@@ -41,13 +42,42 @@ export interface StoredToken {
   expiresAt?: string | null;
 }
 
-/** Read the full persisted token record, or null if signed out. */
-export function readStoredToken(): StoredToken | null {
+/** Name of the login token's entry in the secret store. */
+const TOKEN_SECRET = "login-token";
+
+function parseStoredToken(raw: string): StoredToken | null {
   try {
-    if (!existsSync(TOKEN_PATH)) return null;
-    const raw = readFileSync(TOKEN_PATH, "utf8");
     const parsed = JSON.parse(raw) as StoredToken;
     return typeof parsed.apiToken === "string" && parsed.apiToken ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Move a token saved by CLI 1.7 and earlier, in plain text at
+ * ~/.apivault/token.json, into the secret store, then delete the file.
+ */
+function migrateTokenFile(): void {
+  if (!existsSync(TOKEN_PATH)) return;
+  try {
+    const legacy = parseStoredToken(readFileSync(TOKEN_PATH, "utf8"));
+    if (legacy && !getSecret(TOKEN_SECRET)) setSecret(TOKEN_SECRET, JSON.stringify(legacy));
+    unlinkSync(TOKEN_PATH);
+  } catch {
+    // Leave the file in place; it is read again next time.
+  }
+}
+
+/** Read the full persisted token record, or null if signed out. */
+export function readStoredToken(): StoredToken | null {
+  migrateTokenFile();
+  const raw = getSecret(TOKEN_SECRET);
+  if (raw) return parseStoredToken(raw);
+  // The store couldn't take the migrated token: keep using the old file.
+  if (!existsSync(TOKEN_PATH)) return null;
+  try {
+    return parseStoredToken(readFileSync(TOKEN_PATH, "utf8"));
   } catch {
     return null;
   }
@@ -57,7 +87,7 @@ export function readStoredToken(): StoredToken | null {
  * True when this process is authenticating as a machine rather than a person.
  *
  * `APIVAULT_TOKEN` is how a service token reaches the CLI in CI, where there is
- * no browser to approve a login and no `~/.apivault/token.json` to read.
+ * no browser to approve a login and no saved login token to read.
  */
 export function isServiceTokenMode(): boolean {
   return Boolean(process.env.APIVAULT_TOKEN?.trim());
@@ -83,7 +113,7 @@ export function readToken(): string | null {
  */
 export function getTokenExpiry(): Date | null {
   // A service token's expiry lives on the server, not in a local file. Reading
-  // a stale ~/.apivault/token.json here would report some other credential's
+  // the saved login token here would report some other credential's
   // expiry — or none — for the token actually in use.
   if (isServiceTokenMode()) return null;
   const stored = readStoredToken();
@@ -105,20 +135,18 @@ export function writeToken(token: {
   name?: string | null;
   expiresAt?: string | null;
 }): void {
-  ensureDataDir();
   const payload: StoredToken = { ...token, createdAt: new Date().toISOString() };
-  writeFileSync(TOKEN_PATH, JSON.stringify(payload, null, 2), "utf8");
-  if (process.platform !== "win32") {
-    try {
-      chmodSync(TOKEN_PATH, 0o600);
-    } catch {
-      // best-effort
-    }
+  setSecret(TOKEN_SECRET, JSON.stringify(payload));
+  try {
+    if (existsSync(TOKEN_PATH)) unlinkSync(TOKEN_PATH);
+  } catch {
+    // best-effort
   }
 }
 
 /** Remove the persisted token (logout). */
 export function clearToken(): void {
+  deleteSecret(TOKEN_SECRET);
   try {
     if (existsSync(TOKEN_PATH)) unlinkSync(TOKEN_PATH);
   } catch {

@@ -27,13 +27,38 @@ const KNOWN_DOTENV_FILES = [
  * so frameworks won't load them regardless of what's in process.env.
  * `__NEXT_PROCESSED_ENV` is set as an additional safeguard to tell Next.js
  * its env has already been populated.
+ *
+ * Vault keys are left out: `APIVAULT_KEY`, any `APIVAULT_KEY_*` variable,
+ * and the variable `.apivault.json` reads the key from (`exclude`). The app needs the decrypted
+ * secrets, not the key that unlocks every other secret in the project. A
+ * secret stored in the vault under one of those names is still passed on.
  */
-export function buildRunEnv(secrets: Record<string, string>): NodeJS.ProcessEnv {
+export function buildRunEnv(
+  secrets: Record<string, string>,
+  exclude: string[] = [],
+): NodeJS.ProcessEnv {
+  const excluded = new Set(exclude.map(normalizeName));
+  const inherited: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (isVaultKeyVariable(name) || excluded.has(normalizeName(name))) continue;
+    inherited[name] = value;
+  }
   return {
-    ...process.env,
+    ...inherited,
     ...secrets,
     __NEXT_PROCESSED_ENV: "true",
   };
+}
+
+/** True for `APIVAULT_KEY` and `APIVAULT_KEY_<anything>` (any case on Windows). */
+export function isVaultKeyVariable(name: string): boolean {
+  const normalized = normalizeName(name);
+  return normalized === "APIVAULT_KEY" || normalized.startsWith("APIVAULT_KEY_");
+}
+
+/** Environment variable names are case-insensitive on Windows only. */
+function normalizeName(name: string): string {
+  return process.platform === "win32" ? name.toUpperCase() : name;
 }
 
 function isHiddenDotenvBackup(name: string): boolean {

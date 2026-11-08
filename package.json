@@ -1,6 +1,6 @@
 {
   "name": "apivault",
-  "version": "1.7.3",
+  "version": "1.8.0",
   "description": "Command-line client for an ApiVault instance. Manage your encrypted API keys from the terminal.",
   "license": "MIT",
   "repository": {
@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^7.2.1",
+    "@napi-rs/keyring": "^2.1.2",
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",
     "cross-spawn": "^7.0.6",

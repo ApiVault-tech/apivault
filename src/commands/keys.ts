@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { input, password, confirm } from "@inquirer/prompts";
 import { ApiError, client } from "../http";
-import { type GlobalOptions, getConfigValue, getActiveProjectId } from "../config";
+import { type GlobalOptions, getActiveProjectId } from "../config";
+import { withVaultKey } from "../vault-key";
 import { getServiceIdentity } from "../service-identity";
 import {
   renderKeysTable,
@@ -91,61 +92,8 @@ async function getKey(id: string, opts: KeyOpts): Promise<void> {
 }
 
 /**
- * Resolve the custom vault key from (in order): an explicit flag,
- * APIVAULT_KEY, or config vaultKey.
- */
-export function resolveVaultKey(vaultKeyFlag?: string): string | undefined {
-  return (vaultKeyFlag ?? process.env.APIVAULT_KEY ?? getConfigValue("vaultKey"))?.trim() || undefined;
-}
-
-async function promptVaultKey(): Promise<string> {
-  return (
-    await password({
-      message: "Vault key (custom encryption):",
-      mask: "*",
-    })
-  ).trim();
-}
-
-/**
- * Run a vault-key-protected request. Sends X-Vault-Key when a vault key is
- * available; prompts on VAULT_KEY_REQUIRED if none was provided yet.
- */
-async function withVaultKey<T>(
-  vaultKeyFlag: string | undefined,
-  fn: (headers: Record<string, string>) => Promise<T>,
-): Promise<T> {
-  const vaultKey = resolveVaultKey(vaultKeyFlag);
-  const headersFor = (customVaultKey?: string): Record<string, string> => {
-    const h: Record<string, string> = {};
-    const value = customVaultKey ?? vaultKey;
-    if (value) h["X-Vault-Key"] = value;
-    return h;
-  };
-
-  try {
-    return await fn(headersFor());
-  } catch (err) {
-    if (err instanceof ApiError && err.code === "VAULT_KEY_REQUIRED") {
-      if (vaultKey) throw new ApiError("That vault key is incorrect.", 403, undefined);
-      if (!canPrompt()) {
-        throw new ApiError(
-          "This project uses a custom vault key, and there is no terminal to ask for it. " +
-            "Pass --vault-key or set APIVAULT_KEY.",
-          400,
-          undefined,
-        );
-      }
-      const customVaultKey = await promptVaultKey();
-      return fn(headersFor(customVaultKey));
-    }
-    throw err;
-  }
-}
-
-/**
  * Decrypt a key. Default-mode accounts work with just the Bearer token.
- * Custom-mode accounts need the vault key via resolveVaultKey or prompt.
+ * Custom-mode projects need the vault key; see withVaultKey for where it comes from.
  */
 export async function revealKey(
   c: typeof client,
@@ -162,7 +110,7 @@ async function revealKeyDetails(
   keyFlag?: string,
   projectId?: string,
 ): Promise<ApiKeyDTO & { rawKey: string }> {
-  const decrypted = await withVaultKey(keyFlag, (headers) => {
+  const decrypted = await withVaultKey(keyFlag, projectId, (headers) => {
     const url = projectId
       ? `/api/keys/${encodeURIComponent(id)}/decrypt?projectId=${projectId}`
       : `/api/keys/${encodeURIComponent(id)}/decrypt`;
@@ -246,7 +194,7 @@ async function addKey(opts: KeyOpts & AddKeyFields): Promise<void> {
         ? (await input({ message: "Notes (optional):", default: "" })).trim()
         : "";
 
-  const created = await withVaultKey(opts.vaultKey, (headers) =>
+  const created = await withVaultKey(opts.vaultKey, projectId, (headers) =>
     c.request<ApiKeyDTO>("/api/keys", {
       method: "POST",
       headers,
@@ -324,7 +272,7 @@ async function updateKey(id: string, opts: KeyOpts): Promise<void> {
     default: existing.notes ?? "",
   });
 
-  const updated = await withVaultKey(undefined, (headers) =>
+  const updated = await withVaultKey(undefined, projectId, (headers) =>
     c.request<ApiKeyDTO>(`/api/keys/${encodeURIComponent(id)}`, {
       method: "PUT",
       headers,

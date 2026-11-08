@@ -6,6 +6,7 @@ import { client } from "../http";
 import { revealKey, type ApiKeyDTO } from "./keys";
 import { getConfigValue, getActiveProjectId, type GlobalOptions } from "../config";
 import { buildRunEnv, hideDotenvFiles, restoreDotenvFiles } from "../run-env";
+import { vaultKeyVariables } from "../vault-key";
 import { resolveEnvironment } from "../service-identity";
 import { green, dim, yellow, reportError } from "../ui/format";
 
@@ -87,7 +88,7 @@ async function runCommand(opts: RunOpts, commandAndArgs: string[]): Promise<void
     );
   }
 
-  const childEnv = buildRunEnv(envOverlay);
+  const childEnv = buildRunEnv(envOverlay, vaultKeyVariables());
   const projectDir = process.cwd();
   const hiddenDotenvFiles = hideDotenvFiles(projectDir);
   if (hiddenDotenvFiles.length > 0) {

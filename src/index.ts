@@ -8,6 +8,7 @@ import { registerProjectsCommand } from "./commands/projects";
 import { registerLogsCommand } from "./commands/logs";
 import { reportError } from "./ui/format";
 import { isTokenExpired, readToken } from "./config";
+import { migrateGlobalVaultKey } from "./vault-key";
 import pkg from "../package.json";
 
 const program = new Command();
@@ -116,6 +117,15 @@ registerLogsCommand(program);
 // When invoked with no arguments at all, print a short status hint. Any
 // unrecognized command is left to commander, which exits non-zero with a
 // helpful "unknown command" message.
+// CLI 1.7 and earlier kept one vault key, in plain text, in
+// ~/.apivault/config.json. Move it into the secret store before any command
+// reads the config.
+try {
+  migrateGlobalVaultKey();
+} catch {
+  // Never block a command on the migration; it runs again next time.
+}
+
 const rawArgs = process.argv.slice(2);
 if (rawArgs.length === 0) {
   const signedIn = Boolean(readToken());

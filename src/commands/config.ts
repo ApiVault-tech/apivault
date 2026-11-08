@@ -6,9 +6,20 @@ import {
   getConfigValue,
   setConfigValue,
   deleteConfigValue,
+  getActiveProjectId,
+  writeLocalConfig,
   type StoredConfig,
   type ConfigScope,
 } from "../config";
+import {
+  deleteLegacyVaultKey,
+  hasLegacyVaultKey,
+  parseEnvReference,
+  resolveProject,
+  vaultKeySecretName,
+  type ProjectIdentity,
+} from "../vault-key";
+import { deleteSecret, getSecret, secretStoreName, setSecret } from "../secret-store";
 import { printJson, printSuccess, dim, green, cyan, yellow, reportError } from "../ui/format";
 
 /** Keys whose values are secrets and should be masked in overview output. */
@@ -52,6 +63,12 @@ function maskValue(value: string): string {
   return "•".repeat(Math.max(4, value.length - 2)) + value.slice(-2);
 }
 
+/** How a config value is shown: secrets masked, `${env:NAME}` references as written. */
+function displayValue(key: string, value: string): string {
+  if (!SECRET_KEYS.has(key) || parseEnvReference(value)) return value;
+  return dim(maskValue(value));
+}
+
 /** Flatten a nested config into dot-path entries (sorted for stable display). */
 function flattenConfig(
   config: StoredConfig,
@@ -83,6 +100,240 @@ function resolveScopeOption(opts: ConfigScopeOptions): "local" | "global" | unde
   return undefined;
 }
 
+// --- vaultKey ---------------------------------------------------------------
+//
+// A vault key belongs to one project. `config set vaultKey` saves it in the
+// OS credential store under that project, or writes a `${env:NAME}` reference
+// into .apivault.json. The key itself never goes into a config file.
+
+/** The project `config ... vaultKey` acts on. It must be set, not defaulted. */
+async function vaultKeyProject(projectFlag?: string): Promise<ProjectIdentity> {
+  const ref = getActiveProjectId(projectFlag);
+  if (!ref) {
+    throw new Error(
+      "Vault keys are saved per project, and no project is set here. " +
+        "Run `apivault projects use <id>` in the project folder, or pass --project <id>.",
+    );
+  }
+  const project = await resolveProject(ref);
+  if (!project) throw new Error(`No project "${ref}" found on your account.`);
+  return project;
+}
+
+/** Drop a plain-text vault key that CLI 1.7 and earlier wrote into .apivault.json. */
+function removeLocalPlainVaultKey(): string | null {
+  const { config, filePath } = readLocalConfig();
+  if (!filePath || typeof config.vaultKey !== "string" || parseEnvReference(config.vaultKey)) {
+    return null;
+  }
+  const updated = { ...config };
+  delete updated.vaultKey;
+  writeLocalConfig(updated);
+  return filePath;
+}
+
+async function setVaultKey(
+  value: string | undefined,
+  opts: ConfigScopeOptions,
+  projectFlag: string | undefined,
+  json: boolean,
+): Promise<void> {
+  const scope = resolveScopeOption(opts);
+  if (scope === "global") {
+    throw new Error(
+      "Vault keys belong to a project, so there is no global one. " +
+        "Run `apivault config set vaultKey` in the project folder, or pass --project <id>.",
+    );
+  }
+
+  // A reference to an environment variable goes into .apivault.json as written.
+  const variable = value ? parseEnvReference(value) : null;
+  if (variable) {
+    const reference = value!.trim();
+    const result = setConfigValue("vaultKey", reference, { scope: "local" });
+    if (json) {
+      printJson({ key: "vaultKey", set: true, scope: "local", file: result.targetPath, variable });
+      return;
+    }
+    printSuccess(
+      `This project now reads its vault key from ${green(variable)} ${cyan(`[local: ${result.targetPath}]`)}.`,
+    );
+    if (!process.env[variable]?.trim()) {
+      process.stdout.write(yellow("⚠ ") + dim(`${variable} isn't set in this shell yet.\n`));
+    }
+    return;
+  }
+
+  if (scope === "local") {
+    throw new Error(
+      "A vault key can't be saved in .apivault.json. Point it at an environment variable instead, " +
+        "for example `apivault config set vaultKey '${env:APIVAULT_KEY_MY_APP}'`, " +
+        `or leave out --local to save the key in ${secretStoreName()}.`,
+    );
+  }
+
+  const project = await vaultKeyProject(projectFlag);
+  // Prompt rather than take the key as an argument, so it stays out of
+  // shell history.
+  const key = (
+    value ?? (await password({ message: `Vault key for ${project.slug}:`, mask: "*" }))
+  ).trim();
+  if (!key) throw new Error("A vault key is required.");
+
+  setSecret(vaultKeySecretName(project.id), key);
+  const cleaned = removeLocalPlainVaultKey();
+
+  if (json) {
+    printJson({
+      key: "vaultKey",
+      set: true,
+      project: project.id,
+      store: secretStoreName(),
+      removedFrom: cleaned,
+    });
+    return;
+  }
+  printSuccess(`Saved the vault key for ${green(project.slug)} in ${secretStoreName()}.`);
+  if (cleaned) {
+    process.stdout.write(
+      dim(
+        `  Removed the plain-text copy from ${cleaned}. If that file was ever committed, change the vault key.\n`,
+      ),
+    );
+  }
+}
+
+async function getVaultKey(
+  opts: ConfigScopeOptions,
+  projectFlag: string | undefined,
+  json: boolean,
+): Promise<void> {
+  const scope = resolveScopeOption(opts);
+
+  if (scope === "global") {
+    const legacy = hasLegacyVaultKey();
+    if (json) {
+      printJson({ key: "vaultKey", scope: "global", legacySaved: legacy });
+      return;
+    }
+    if (legacy) {
+      process.stdout.write(
+        `A vault key saved by an older CLI version is in ${secretStoreName()}. ` +
+          "Each project it works for gets its own copy. " +
+          "Remove it with `apivault config delete vaultKey --global`.\n",
+      );
+    } else {
+      process.stdout.write(dim("There is no global vault key. Vault keys are saved per project.\n"));
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  const { config: localConfig, filePath } = readLocalConfig();
+  const local = typeof localConfig.vaultKey === "string" ? localConfig.vaultKey.trim() : "";
+  const variable = local ? parseEnvReference(local) : null;
+
+  if (local || scope === "local") {
+    const variableSet = variable ? Boolean(process.env[variable]?.trim()) : false;
+    if (json) {
+      printJson({
+        key: "vaultKey",
+        scope: "local",
+        file: filePath,
+        reference: variable ? local : null,
+        plainText: Boolean(local && !variable),
+        variable,
+        variableSet,
+      });
+      return;
+    }
+    if (variable) {
+      const status = variableSet
+        ? green("(set in this shell)")
+        : yellow(`(${variable} isn't set in this shell)`);
+      process.stdout.write(`${local}  ${status}\n`);
+    } else if (local) {
+      process.stdout.write(
+        yellow(`${filePath} holds a plain-text vault key. Run \`apivault config set vaultKey\` to move it.\n`),
+      );
+    } else {
+      process.stdout.write(dim("No vault key reference in local config.\n"));
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  // A saved key is never printed, so an agent running this command can't
+  // read it into its context.
+  const project = await vaultKeyProject(projectFlag);
+  const saved = getSecret(vaultKeySecretName(project.id));
+  if (json) {
+    printJson({ key: "vaultKey", project: project.id, saved: saved !== null, store: secretStoreName() });
+    return;
+  }
+  if (saved !== null) {
+    process.stdout.write(
+      `${dim(maskValue(saved))}  saved for ${green(project.slug)} in ${secretStoreName()}\n`,
+    );
+  } else {
+    process.stdout.write(dim(`No vault key saved for ${project.slug}.\n`));
+    process.exitCode = 1;
+  }
+}
+
+async function deleteVaultKey(
+  opts: ConfigScopeOptions,
+  projectFlag: string | undefined,
+  json: boolean,
+): Promise<void> {
+  const scope = resolveScopeOption(opts);
+
+  if (scope === "global") {
+    const deleted = deleteLegacyVaultKey();
+    if (json) {
+      printJson({ key: "vaultKey", scope: "global", deleted });
+      return;
+    }
+    if (deleted) {
+      printSuccess("Removed the vault key saved by an older CLI version.");
+    } else {
+      process.stdout.write(dim("There is no global vault key to remove.\n"));
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  const { deletedLocal } = deleteConfigValue("vaultKey", { scope: "local" });
+  let deletedSaved = false;
+  let project: ProjectIdentity | null = null;
+  if (scope !== "local") {
+    project = await vaultKeyProject(projectFlag);
+    deletedSaved = deleteSecret(vaultKeySecretName(project.id));
+  }
+
+  if (json) {
+    printJson({
+      key: "vaultKey",
+      deleted: deletedLocal || deletedSaved,
+      deletedLocal,
+      deletedSaved,
+      project: project?.id ?? null,
+    });
+    return;
+  }
+  if (!deletedLocal && !deletedSaved) {
+    process.stdout.write(
+      dim(`No vault key was set${project ? ` for ${project.slug}` : " in local config"}.\n`),
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const parts: string[] = [];
+  if (deletedSaved) parts.push(`${secretStoreName()} (${project!.slug})`);
+  if (deletedLocal) parts.push("local config");
+  printSuccess(`Removed vaultKey from ${parts.join(" and ")}.`);
+}
+
 /** apivault config list */
 function listConfig(opts: ConfigScopeOptions, json: boolean): void {
   const scope = resolveScopeOption(opts);
@@ -112,8 +363,7 @@ function listConfig(opts: ConfigScopeOptions, json: boolean): void {
     process.stdout.write(dim(`Local configuration (${localPath}):\n`));
     const width = Math.max(...entries.map((e) => e.key.length));
     for (const { key, value } of entries) {
-      const display = SECRET_KEYS.has(key) ? dim(maskValue(value)) : value;
-      process.stdout.write(`  ${green(pad(key, width))}  ${display}\n`);
+      process.stdout.write(`  ${green(pad(key, width))}  ${displayValue(key, value)}\n`);
     }
     return;
   }
@@ -127,8 +377,7 @@ function listConfig(opts: ConfigScopeOptions, json: boolean): void {
     process.stdout.write(dim("Global configuration (~/.apivault/config.json):\n"));
     const width = Math.max(...entries.map((e) => e.key.length));
     for (const { key, value } of entries) {
-      const display = SECRET_KEYS.has(key) ? dim(maskValue(value)) : value;
-      process.stdout.write(`  ${green(pad(key, width))}  ${display}\n`);
+      process.stdout.write(`  ${green(pad(key, width))}  ${displayValue(key, value)}\n`);
     }
     return;
   }
@@ -152,12 +401,15 @@ function listConfig(opts: ConfigScopeOptions, json: boolean): void {
     const globalVal = globalEntries.find((e) => e.key === key)?.value;
     const isLocal = localVal !== undefined;
     const activeVal = isLocal ? localVal : globalVal!;
-    const display = SECRET_KEYS.has(key) ? dim(maskValue(activeVal)) : activeVal;
+    const display = displayValue(key, activeVal);
     const sourceTag = isLocal
       ? cyan(" (local)")
       : dim(" (global)");
     process.stdout.write(`  ${green(pad(key, width))}  ${display}${sourceTag}\n`);
   }
+  process.stdout.write(
+    dim(`\nSaved vault keys are kept in ${secretStoreName()}. Check this project's with \`apivault config get vaultKey\`.\n`),
+  );
 }
 
 /** apivault config get <key> */
@@ -244,6 +496,7 @@ function deleteConfig(key: string, opts: ConfigScopeOptions, json: boolean): voi
 /** Register the `config` command group on the parent program. */
 export function registerConfigCommand(program: Command): void {
   const json = () => Boolean(program.opts().json);
+  const projectFlag = () => program.opts().project as string | undefined;
   const handle = (err: unknown) => {
     reportError(err, json());
     process.exitCode = 1;
@@ -271,9 +524,10 @@ export function registerConfigCommand(program: Command): void {
     .description("Print a config value (dot path, e.g. run.command, project)")
     .option("-l, --local", "Get only from local project config")
     .option("-g, --global", "Get only from global user config")
-    .action((key: string, opts: ConfigScopeOptions) => {
+    .action(async (key: string, opts: ConfigScopeOptions) => {
       try {
-        getConfig(key, opts, json());
+        if (key === "vaultKey") await getVaultKey(opts, projectFlag(), json());
+        else getConfig(key, opts, json());
       } catch (err) {
         handle(err);
       }
@@ -282,12 +536,16 @@ export function registerConfigCommand(program: Command): void {
   config
     .command("set <key> [value]")
     .description(
-      "Set a config value. Secret keys (vaultKey) prompt hidden when value is omitted.",
+      "Set a config value. vaultKey is saved per project in the OS credential store " +
+        "(hidden prompt when the value is omitted), or as a ${env:NAME} reference in .apivault.json.",
     )
     .option("-l, --local", "Save in local project config (.apivault.json)")
     .option("-g, --global", "Save in global user config (~/.apivault/config.json)")
     .action(async (key: string, value: string | undefined, opts: ConfigScopeOptions) =>
-      setConfig(key, value, opts, json()).catch(handle),
+      (key === "vaultKey"
+        ? setVaultKey(value, opts, projectFlag(), json())
+        : setConfig(key, value, opts, json())
+      ).catch(handle),
     );
 
   config
@@ -295,9 +553,10 @@ export function registerConfigCommand(program: Command): void {
     .description("Remove a config value")
     .option("-l, --local", "Remove only from local project config")
     .option("-g, --global", "Remove only from global user config")
-    .action((key: string, opts: ConfigScopeOptions) => {
+    .action(async (key: string, opts: ConfigScopeOptions) => {
       try {
-        deleteConfig(key, opts, json());
+        if (key === "vaultKey") await deleteVaultKey(opts, projectFlag(), json());
+        else deleteConfig(key, opts, json());
       } catch (err) {
         handle(err);
       }

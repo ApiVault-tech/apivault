@@ -104,7 +104,7 @@ apivault login
 
 1. Opens your default browser to an **Approve / Refuse** prompt on ApiVault.
 2. If you're not already signed in, you'll be redirected to log in first.
-3. The CLI waits in the terminal until approval is detected (override with `--timeout <seconds>`), then saves an API token under `~/.apivault/token.json`.
+3. The CLI waits in the terminal until approval is detected (override with `--timeout <seconds>`), then saves an API token in your OS credential store (see [Local secrets](#local-secrets)).
 
 ```bash
 apivault whoami                    # check connection status
@@ -281,11 +281,31 @@ apivault keys add \
 Projects with a **custom vault key** (set on the project's Vault Encryption page) need the vault key for encrypt/decrypt operations. The CLI resolves it in order:
 
 1. `--vault-key "<vault-key>"` flag
-2. `APIVAULT_KEY` environment variable
-3. Stored config value (`apivault config set vaultKey`)
-4. Interactive hidden prompt (fallback)
+2. `APIVAULT_KEY` environment variable (pipelines and one-off commands)
+3. A `${env:NAME}` reference in `.apivault.json`
+4. The key saved for this project with `apivault config set vaultKey`
+5. Interactive hidden prompt, which offers to save the key for the project
 
 Projects using default encryption need no vault key.
+
+Vault keys belong to a project, so they are saved per project, in your OS credential store:
+
+```bash
+apivault config set vaultKey      # run in the project folder; prompts with hidden input
+apivault config get vaultKey      # masked, and whether one is saved
+apivault config delete vaultKey   # removes this project's saved key
+```
+
+To use an environment variable instead, reference it from `.apivault.json`. The file holds only the name, so it stays safe to commit. Use single quotes so your shell doesn't expand it:
+
+```bash
+apivault config set vaultKey '${env:APIVAULT_KEY_MY_APP}'
+setx APIVAULT_KEY_MY_APP "your-vault-key"   # Windows; or export it from your shell profile
+```
+
+Don't set `APIVAULT_KEY` itself permanently: every project would receive it, and projects with a different vault key fail with "That vault key is incorrect."
+
+`apivault run` doesn't pass `APIVAULT_KEY`, `APIVAULT_KEY_*` variables, or the variable `.apivault.json` names to the command it starts.
 
 #### Attempt limits
 
@@ -360,11 +380,17 @@ apivault config get run.command            # read a resolved value
 apivault config set --local run.env Dev    # set local project default environment
 apivault config set --local run.command "npm run dev"
 apivault config set --global run.env Prod  # set global default environment
-apivault config set vaultKey               # save vault key (hidden input)
+apivault config set vaultKey               # save this project's vault key in the OS credential store
 apivault config delete --local run.env     # remove a local value
 ```
 
-Known keys: `project`, `run.command`, `run.env`, `vaultKey`. Explicit flags and local configs always take precedence.
+Known keys: `project`, `run.command`, `run.env`, `vaultKey`. Explicit flags and local configs always take precedence. `vaultKey` is never written to a config file; see [Custom Encryption Vault Key](#custom-encryption-vault-key).
+
+### Local secrets
+
+The login token and saved vault keys are kept in your operating system's credential store: Keychain on macOS, Credential Manager on Windows, and the Secret Service (libsecret) on Linux. Where none is available, such as a headless Linux machine, they go to `~/.apivault/secrets.json` with owner-only permissions. Set `APIVAULT_NO_KEYCHAIN=1` to use the file on purpose.
+
+Upgrading from 1.7 or earlier moves the token from `~/.apivault/token.json` and the vault key from `~/.apivault/config.json` into the credential store the first time the CLI runs. The old vault key is adopted by each project it works for; remove it with `apivault config delete vaultKey --global`.
 
 
 ---
@@ -437,7 +463,7 @@ apivault --json keys get <id> --reveal | jq -r .rawKey | clip
 | Layer | Detail |
 | :--- | :--- |
 | **Transport** | HTTPS with token-header authentication |
-| **Local storage** | `~/.apivault/token.json` and `config.json` written with `0600` permissions (Unix) |
+| **Local storage** | Login token and vault keys in the OS credential store (Keychain, Credential Manager, Secret Service); `config.json` holds no secrets |
 | **Process isolation** | Secrets exist only in child-process memory during `apivault run` — nothing written to disk |
 | **Token lifetime** | Device tokens expire 90 days after approval, and can be revoked early from **Settings → Sessions & Devices** |
 | **Throttling** | Wrong vault keys are rate limited server-side (10 per 15 minutes, per user and source address) |
