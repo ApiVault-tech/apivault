@@ -92,7 +92,7 @@ Installs into `~/.local/share/apivault` and links `~/.local/bin/apivault` — no
 
 **Global flags:** `--json` (machine-readable output), `--timeout <seconds>` (browser approval wait, default 300), `-p, --project <id|slug>` (explicit project override), `-V, --version`, `-h, --help`.
 
-**Environment variables:** `APIVAULT_TOKEN` (service token for headless/CI use — see [Headless Authentication](#headless-authentication-cicd)), `APIVAULT_PROJECT` (default project).
+**Environment variables:** `APIVAULT_TOKEN` (service token for headless/CI use — see [Headless Authentication](#headless-authentication-cicd)), `APIVAULT_PROJECT` (default project), `APIVAULT_KEY` (vault key for CI or one command — see [Custom Encryption Vault Key](#custom-encryption-vault-key)), `APIVAULT_NO_KEYCHAIN` (keep secrets in a file — see [Local secrets](#local-secrets)).
 
 ---
 
