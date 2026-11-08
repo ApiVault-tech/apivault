@@ -288,20 +288,54 @@ Projects with a **custom vault key** (set on the project's Vault Encryption page
 
 Projects using default encryption need no vault key.
 
-Vault keys belong to a project, so they are saved per project, in your OS credential store:
+Vault keys belong to a project, so they are saved per project. There are two ways to set one up.
+
+#### Recommended: save it in your OS credential store
 
 ```bash
-apivault config set vaultKey      # run in the project folder; prompts with hidden input
-apivault config get vaultKey      # masked, and whether one is saved
-apivault config delete vaultKey   # removes this project's saved key
+apivault projects use my-app      # link the folder first (skip if it has .apivault.json)
+apivault config set vaultKey      # prompts with hidden input, saves it for this project
+apivault run -- npm run dev       # finds the key on its own
 ```
 
-To use an environment variable instead, reference it from `.apivault.json`. The file holds only the name, so it stays safe to commit. Use single quotes so your shell doesn't expand it:
+Check or remove it with `apivault config get vaultKey` (masked) and `apivault config delete vaultKey`. When a command prompts for the vault key, it also offers to save it afterwards.
 
-```bash
-apivault config set vaultKey '${env:APIVAULT_KEY_MY_APP}'
-setx APIVAULT_KEY_MY_APP "your-vault-key"   # Windows; or export it from your shell profile
-```
+The entries appear in your system's own tools under the name `apivault`, one per project as `vault-key:<project id>`, plus `login-token`:
+
+- **Windows:** Control Panel → Credential Manager → Windows Credentials (`vault-key:<project id>.apivault`)
+- **macOS:** Keychain Access, login keychain, item `apivault`, account `vault-key:<project id>`
+- **Linux:** Seahorse, or `secret-tool search service apivault`
+
+#### Alternative: read it from an environment variable
+
+`.apivault.json` can name a variable to read the key from. It holds only the name, so it stays safe to commit. Use a name that belongs to this project, so the variable doesn't reach your other projects.
+
+1. Set the variable once, then open a new terminal:
+
+   ```bash
+   setx APIVAULT_KEY_MY_APP "your-vault-key"                                                   # Windows (cmd)
+   [Environment]::SetEnvironmentVariable("APIVAULT_KEY_MY_APP", "your-vault-key", "User")       # Windows (PowerShell)
+   echo 'export APIVAULT_KEY_MY_APP="your-vault-key"' >> ~/.zshrc                              # macOS/Linux (~/.bashrc for bash)
+   ```
+
+2. Point `.apivault.json` at it. Keep the single quotes so your shell doesn't expand it:
+
+   ```bash
+   apivault config set vaultKey '${env:APIVAULT_KEY_MY_APP}'
+   ```
+
+   Or edit the file directly:
+
+   ```json
+   {
+     "project": "my-app",
+     "vaultKey": "${env:APIVAULT_KEY_MY_APP}"
+   }
+   ```
+
+3. Check it with `apivault config get vaultKey`, which shows the reference and whether the variable is set in this terminal.
+
+Each teammate sets the same variable name on their own machine; mention it in your project's README. The variable is still plain text in your environment, so the credential store is the safer choice.
 
 Don't set `APIVAULT_KEY` itself permanently: every project would receive it, and projects with a different vault key fail with "That vault key is incorrect."
 
